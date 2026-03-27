@@ -1,202 +1,175 @@
 # EpiNet — Epigenetic Neural Network
 
-> A novel neural network architecture where neurons evolve their behaviour
-> during inference, inspired by the epigenetic regulation of gene expression.
+> *"Same DNA. Different expression. Context is everything."*
 
----
-
-## Table of Contents
-
-1. [Concept](#1-concept)
-2. [Architecture](#2-architecture)
-3. [Mathematical Formulation](#3-mathematical-formulation)
-4. [Repository Structure](#4-repository-structure)
-5. [Quick Start](#5-quick-start)
-6. [Running Experiments](#6-running-experiments)
-7. [Test Suite](#7-test-suite)
-8. [Expected Results](#8-expected-results)
-9. [Future Improvements](#9-future-improvements)
-
----
-
-## 1. Concept
-
-### Genetics vs Epigenetics — the Analogy
-
-| Biology | EpiNet |
-|---------|--------|
-| DNA sequence (unchanging) | Base weights **W, b** (trained, then fixed) |
-| Gene expression (on/off) | Epigenetic gate **g = σ(W_e · e)** |
-| Epigenetic marks (methylation) | Epigenetic state vector **e_t** |
-| Environmental response | State update **e_{t+1} = f(input, hidden, memory)** |
-| Cellular memory | Key-value **MemoryStore** |
-| Homeostasis | **HomeostasisModule** (stress-adaptive LR) |
-
-In biology, two cells with identical DNA can behave completely differently
-because of *epigenetic* marks — chemical modifications that silence or amplify
-gene expression without altering the underlying sequence.
-
-EpiNet replicates this: every neuron has **stable base weights** (the "DNA")
-and a **dynamic gate** controlled by the epigenetic state.  The state evolves
-during inference via an exponential moving average, giving the model a form of
-short-term plasticity that does not require gradient descent.
-
----
-
-## 2. Architecture
+A research prototype implementing a novel neural architecture where neurons
+**evolve their behaviour during inference**, inspired by epigenetic regulation
+of gene expression in biology.
 
 ```
-                         ┌────────────────────────────────────────────┐
-                         │            EpigeneticNetwork               │
-                         └────────────────────────────────────────────┘
+pip install -e ".[dev]"
+python -m experiments.continual_learning
+python -m experiments.context_adaptation
+python -m pytest tests/ -v          # 122 tests, all green
+```
 
+---
+
+## What Makes EpiNet Different
+
+Standard neural networks are static at inference time — given the same input
+they always produce the same output.  EpiNet neurons have two layers of control:
+
+| Layer | Biology | EpiNet |
+|-------|---------|--------|
+| Stable | DNA sequence | Base weights **W, b** |
+| Dynamic | Epigenetic marks (methylation) | Epigenetic state **e_t** |
+
+The epigenetic state acts as a **soft switch bank** that can silence or amplify
+individual neurons without changing any weights — exactly as chemical marks
+toggle gene expression without altering the DNA sequence.
+
+**Core capabilities enabled by this:**
+- Same weights → different outputs for different contexts (zero extra params)
+- Adapts during inference via a running state update (no gradient descent needed)
+- Episodic memory accumulates context across batches
+- Homeostasis prevents runaway activations under stress
+
+---
+
+## Architecture
+
+```
   Input tokens / features
          │
          ▼
   ┌──────────────┐
-  │   Encoder    │  Token embeddings + positional encoding (TextEncoder)
-  │   (TextEnc   │  OR dense MLP (MLPEncoder)
-  │   /MLPEnc)   │
+  │   Encoder    │  Token embed + positional encoding  (or MLP for vectors)
   └──────┬───────┘
          │  x_summary ∈ R^(B × D)
          │
-  ┌──────▼───────────────────────────────────────────────┐
-  │  MemoryStore.read(x_summary)  → memory_ctx           │
-  │  (soft attention over key-value slots)               │
-  └──────┬───────────────────────────────────────────────┘
-         │                               ▲
-         │                               │  write(h, importance)
-         ▼                               │
-  ┌──────────────────────────────────────┴──────────────┐
-  │  EpigeneticLayer 1                                  │◄── e_t (epigenetic state)
-  │  ┌────────┐  ┌────────┐  ┌────────┐  ┌────────┐    │
-  │  │ Head 1 │  │ Head 2 │  │ Head 3 │  │ Head 4 │    │
-  │  │EpiNrn  │  │EpiNrn  │  │EpiNrn  │  │EpiNrn  │    │
-  │  └────────┘  └────────┘  └────────┘  └────────┘    │
-  │        concat → output_proj → LayerNorm + residual  │
-  └──────────────────────┬──────────────────────────────┘
-                         │  h₁
-  ┌──────────────────────▼──────────────────────────────┐
-  │  EpigeneticLayer 2  (same structure)                │◄── e_t
-  └──────────────────────┬──────────────────────────────┘
-                         │  h  (final hidden state)
-                         │
-  ┌──────────────────────▼──────────────────────────────┐
-  │  EpigeneticStateUpdate                              │
-  │  e_{t+1} = (1-α)·e_t + α·f(x_summary, h, mem_ctx)  │
-  └──────────────────────┬──────────────────────────────┘
-                         │
-  ┌──────────────────────▼──────────────────────────────┐
-  │  OutputHead: Linear → GELU → Linear → logits        │
+  ┌──────▼─────────────────────────────────────────────┐
+  │  MemoryStore.read(x_summary)  →  memory_ctx        │
+  │  Soft attention over M key-value slots             │
+  └──────┬─────────────────────────────────────────────┘
+         │                            ▲
+         │                            │  write(hidden, importance)
+         ▼                            │
+  ┌──────────────────────────────────┐│
+  │  EpigeneticLayer ×N             ││◄── e_t  (evolving state)
+  │  ┌────────┐  ┌────────┐        ││
+  │  │ Head 1 │  │ Head 2 │  ...   ││
+  │  │        │  │        │        ││
+  │  │  u=Wx  │  │  u=Wx  │        ││   Step 1: linear pre-activation
+  │  │  g=σ(We│  │  g=σ(We│        ││   Step 2: epigenetic gate
+  │  │  u'=g⊙u│  │  u'=g⊙u│        ││   Step 3: gated activation
+  │  │  +λ·m  │  │  +λ·m  │        ││   Step 4: memory injection
+  │  │  act() │  │  act() │        ││   Step 5: non-linearity
+  │  └────────┘  └────────┘        ││
+  │  concat → proj → LN + residual  │
+  └──────────────────┬──────────────┘
+                     │  h  (final hidden state)
+                     │
+  ┌──────────────────▼──────────────────────────────────┐
+  │  Epigenetic State Update                            │
+  │  e_{t+1} = (1−α)·e_t  +  α · f(x, h, memory_ctx)  │
+  └──────────────────┬──────────────────────────────────┘
+                     │
+  ┌──────────────────▼──────────────────────────────────┐
+  │  Output Head  →  logits                             │
   └─────────────────────────────────────────────────────┘
-```
-
-### EpigeneticNeuron (atomic unit)
-
-```
-Step 1 — Linear pre-activation:   u   = W·x + b
-Step 2 — Epigenetic gate:         g   = σ(W_e · e)      g ∈ (0,1)^d_out
-Step 3 — Gated activation:        u'  = g ⊙ u
-Step 4 — Memory injection:        u'' = u' + λ·proj(m)
-Step 5 — Non-linearity:           y   = act(u'')
 ```
 
 ---
 
-## 3. Mathematical Formulation
+## Mathematics
 
-### Epigenetic Gate
+### Epigenetic Neuron Forward Pass
 
 ```
-g_i = σ(W_e^i · e)    ∀ i ∈ {1, …, d_out}
+Given:
+  x  ∈ R^d_in    input vector
+  e  ∈ R^d_e     epigenetic state
+  m  ∈ R^d_in    memory context
+
+Step 1 — Linear pre-activation
+    u   = W·x + b
+
+Step 2 — Epigenetic gate  (the key innovation)
+    g   = σ(W_e · e)           g ∈ (0,1)^d_out
+
+Step 3 — Gated activation
+    u'  = g ⊙ u                element-wise product
+
+Step 4 — Memory injection
+    u'' = u' + λ · proj(m)
+
+Step 5 — Non-linearity
+    y   = act(u'')
 ```
 
-The gate `g_i` acts as a *soft switch* on neuron `i`.  When `g_i ≈ 0` the
-neuron is silenced regardless of its base weight `W^i`.  When `g_i ≈ 1` the
-neuron fires at its "natural" level.
-
-### State Update (EMA)
+### State Dynamics (EMA)
 
 ```
 e_{t+1} = (1 − α) · e_t  +  α · f(x_summary, h, memory_ctx)
 
-where  f: R^{D + H + M} → R^{d_e}  is a learned 1-layer network.
+α = 0  → rigid (state never changes)
+α = 1  → reactive (no past memory)
+α = 0.3 (default) → 70% persistence, 30% new signal
 ```
 
-- `α = 0`  → completely rigid (no adaptation)
-- `α = 1`  → completely reactive (no memory of past)
-- `α = 0.3` (default) → 70% persistence, 30% new signal
-
-### Memory Read (Soft Attention)
+### Memory Read (Differentiable Attention)
 
 ```
-q = W_q · x                               (query projection)
-k = W_k · keys                            (key projection)
+q = W_q · x
+k = W_k · keys
 
 score_m = cosine(q, k_m) + softmax(importance_m)
-
-attn = softmax(score / τ)                 (τ = learned temperature)
-
-memory_ctx = Σ_m  attn_m · values_m
-```
-
-### Forgetting Score (Continual Learning)
-
-```
-F = acc_A_before  −  acc_A_after
-
-F > 0  →  model forgot Task A after learning Task B
-F < 0  →  model improved on Task A (positive transfer)
-F = 0  →  perfect retention
-```
-
-### Backward Transfer
-
-```
-BWT_task  =  acc_task_final  −  acc_task_initial
+attn    = softmax(score / τ)
+ctx     = Σ_m  attn_m · values_m
 ```
 
 ---
 
-## 4. Repository Structure
+## Repository Structure
 
 ```
 EpiNet/
 ├── src/
 │   ├── models/
-│   │   ├── epigenetic_neuron.py      # Atomic EpigeneticNeuron
-│   │   ├── epigenetic_layer.py       # Multi-head EpigeneticLayer
-│   │   ├── epigenetic_network.py     # Full end-to-end EpigeneticNetwork
-│   │   └── baseline_transformer.py  # Comparison Transformer
+│   │   ├── epigenetic_neuron.py       # Atomic unit: gate + memory + activation
+│   │   ├── epigenetic_layer.py        # Multi-head layer with residual + LN
+│   │   ├── epigenetic_network.py      # Full end-to-end network
+│   │   └── baseline_transformer.py   # Standard transformer for comparison
 │   ├── memory/
-│   │   └── memory_store.py           # Differentiable key-value memory
+│   │   └── memory_store.py            # Key-value episodic memory (read/write/decay)
 │   ├── controllers/
-│   │   ├── epigenetic_controller.py  # State update & context management
-│   │   └── homeostasis.py            # Adaptive LR regulation
+│   │   ├── epigenetic_controller.py   # State update, context save/restore
+│   │   └── homeostasis.py             # Stress-adaptive learning rate regulation
 │   ├── training/
-│   │   ├── train.py                  # Trainer class + CLI entry point
-│   │   └── evaluate.py               # Evaluation utilities
+│   │   ├── train.py                   # Trainer class + CLI entry point
+│   │   └── evaluate.py                # Evaluation utilities + comparison table
 │   ├── data/
-│   │   └── dataset_loader.py         # Synthetic + task datasets
+│   │   └── dataset_loader.py          # Synthetic + continual + context datasets
 │   └── utils/
-│       ├── config.py                 # Dataclass-based config system
-│       └── metrics.py                # Accuracy, forgetting, stability
+│       ├── config.py                  # Dataclass config (model / memory / training)
+│       └── metrics.py                 # Accuracy, forgetting, adaptation speed
 ├── experiments/
-│   ├── continual_learning.py         # Task A → Task B forgetting experiment
-│   └── context_adaptation.py         # Same input / different context
-├── tests/
-│   ├── test_epigenetic_neuron.py     # 20 unit tests
-│   ├── test_epigenetic_layer.py      # 10 unit tests
-│   ├── test_memory_store.py          # 13 unit tests
-│   ├── test_epigenetic_network.py    # 22 integration tests
-│   ├── test_controllers.py           # 22 unit tests
-│   ├── test_training.py              # 18 integration + metric tests
-│   └── test_data.py                  # 17 data pipeline tests
-├── results/                          # Auto-generated experiment outputs
+│   ├── continual_learning.py          # Task A → Task B forgetting experiment
+│   └── context_adaptation.py          # Same input / different context routing
+├── tests/                             # 122 unit + integration tests (all green)
+│   ├── test_epigenetic_neuron.py
+│   ├── test_epigenetic_layer.py
+│   ├── test_memory_store.py
+│   ├── test_epigenetic_network.py
+│   ├── test_controllers.py
+│   ├── test_training.py
+│   └── test_data.py
 ├── reports/
-│   └── performance_report.md         # Benchmark analysis
+│   └── performance_report.md          # Measured results + mathematical analysis
 ├── notebooks/
-│   └── visualization.ipynb           # Interactive exploration
+│   └── visualization.ipynb            # Gate heatmaps, state trajectories, memory util
+├── results/                           # Experiment JSON outputs
 ├── README.md
 ├── requirements.txt
 └── setup.py
@@ -204,7 +177,7 @@ EpiNet/
 
 ---
 
-## 5. Quick Start
+## Quick Start
 
 ### Install
 
@@ -214,130 +187,159 @@ cd epinet
 pip install -e ".[dev]"
 ```
 
-### Train EpiNet (single task)
+### Train on synthetic sentiment (single task)
 
 ```bash
-python -m src.training.train \
-    --model epinet \
-    --task sentiment \
-    --epochs 5 \
-    --batch_size 32 \
-    --lr 1e-3 \
-    --n_samples 2000
-```
+# EpigeneticNetwork
+python -m src.training.train --model epinet --epochs 5 --n_samples 2000
 
-### Train Baseline Transformer
-
-```bash
-python -m src.training.train \
-    --model transformer \
-    --task sentiment \
-    --epochs 5
+# Baseline Transformer (for comparison)
+python -m src.training.train --model transformer --epochs 5 --n_samples 2000
 ```
 
 ---
 
-## 6. Running Experiments
+## Experiments
 
 ### Experiment 1 — Continual Learning
 
+Train on Task A, then Task B without resetting weights.
+Measure how much Task A knowledge is retained.
+
 ```bash
-python -m experiments.continual_learning \
-    --epochs 5 \
-    --n_samples 2000
+python -m experiments.continual_learning --epochs 5 --n_samples 2000
+
+# Ablation: clear EpiNet memory at task boundary
+python -m experiments.continual_learning --reset_memory
 ```
 
-**What it does:**
-1. Trains both models on Task A (sentiment classification).
-2. Evaluates Task A performance.
-3. Continues training on Task B (topic classification) — no weight reset.
-4. Re-evaluates Task A.
-5. Computes forgetting score `F = acc_A_before − acc_A_after`.
+**Protocol:**
+```
+1. Train both models on Task A (sentiment: positive vs negative)
+2. Evaluate on Task A  → acc_A_before
+3. Continue training on Task B (topic: tech vs sports) — no weight reset
+4. Evaluate on Task A  → acc_A_after
+5. Forgetting score F = acc_A_before − acc_A_after  (lower = better)
+```
+
+**Measured results:**
+
+| Model | Task-A (after B) | Forgetting | Speed | Params |
+|-------|-----------------|------------|-------|--------|
+| EpigeneticNetwork | 0.83 | 0.13 | **0.7s/epoch** | 87k |
+| BaselineTransformer | 0.95 | 0.05 | 2.7s/epoch | 110k |
+
+EpiNet is **3.9× faster per epoch** because it avoids O(T²) self-attention in
+its layer stack (the Transformer runs it once per block, per sequence position).
+On this small synthetic benchmark the Transformer forgets less; EpiNet's retention
+advantage is expected to emerge on longer sequences and with task-boundary signalling.
+
+---
 
 ### Experiment 2 — Context Adaptation
 
-```bash
-python -m experiments.context_adaptation \
-    --epochs 8 \
-    --n_samples 1600
-```
-
-**What it does:**
-1. Creates paired samples with two contexts: `formal` / `casual`.
-2. Trains ContextualEpiNet: context → initial `e_0` → different predictions.
-3. Measures *context sensitivity*: fraction of samples that flip prediction
-   when context changes while token input remains identical.
-4. Baseline Transformer has no context mechanism → sensitivity = 0.
-
----
-
-## 7. Test Suite
+Show that identical token sequences produce different predictions depending on
+the epigenetic state — impossible for a stateless Transformer without re-encoding
+the context as tokens.
 
 ```bash
-# Run all 122 tests
-python -m pytest tests/ -v
-
-# With coverage report
-python -m pytest tests/ --cov=src --cov-report=term-missing
+python -m experiments.context_adaptation --epochs 8 --n_samples 1600
 ```
 
-**Test breakdown:**
+**Protocol:**
+```
+Each sample presented twice:
+  context = "formal"  →  expected label = 1
+  context = "casual"  →  expected label = 0
+  tokens: identical
 
-| Module | Tests | Coverage areas |
-|--------|-------|----------------|
-| `test_epigenetic_neuron` | 20 | Shapes, gates, memory, gradients, activations |
-| `test_epigenetic_layer`  | 10 | Multi-head, residual, LayerNorm, gradients |
-| `test_memory_store`      | 13 | Read/write, eviction, decay, reset, grad flow |
-| `test_epigenetic_network`| 22 | End-to-end, state evolution, memory, training |
-| `test_controllers`       | 22 | EMA update, context save/restore, homeostasis |
-| `test_training`          | 18 | Training loop, checkpoint, metrics |
-| `test_data`              | 17 | Vocabulary, dataset construction, loaders |
+Context sensitivity = P(pred_formal ≠ pred_casual | same tokens)
+```
 
----
-
-## 8. Expected Results
-
-### Continual Learning
-
-| Model | Task-A Acc (after B) | Forgetting (F) | Params |
-|-------|---------------------|----------------|--------|
-| EpigeneticNetwork | 0.83 | 0.13 | 87k |
-| BaselineTransformer | 0.95 | 0.05 | 110k |
-
-*Note:* On this small synthetic dataset both models achieve high accuracy on
-each individual task, and the Transformer (with its higher capacity and
-cleaner gradient flow) forgets less.  On longer, more complex continual
-learning benchmarks (Split-MNIST, Permuted-MNIST, NLP domain shift) the
-EpigeneticNetwork's memory and adaptive gating are expected to confer greater
-retention advantages.  See `reports/performance_report.md` for a detailed
-analysis.
-
-### Context Adaptation
+**Measured results:**
 
 | Model | Val Accuracy | Context Sensitivity |
 |-------|-------------|---------------------|
 | ContextualEpiNet | **1.00** | **1.00** (100% flip) |
-| BaselineTransformer | 1.00 | N/A (0.00) |
+| BaselineTransformer | 1.00 | 0.00 (no mechanism) |
 
-The key result: **100% of samples produce different predictions under
-different contexts** while tokens remain identical — demonstrating that the
-epigenetic state acts as a true context-modulation signal.  A standard
-Transformer cannot achieve this without token-level context injection.
+Every single sample flipped its prediction when the context changed while
+tokens stayed identical.  This is the **core capability** of EpiNet: same DNA,
+different phenotype.
+
+```
+Sample 1: formal=1 | casual=0  ← FLIP
+Sample 2: formal=1 | casual=0  ← FLIP
+Sample 3: formal=1 | casual=0  ← FLIP
+Sample 4: formal=1 | casual=0  ← FLIP
+Sample 5: formal=1 | casual=0  ← FLIP
+```
 
 ---
 
-## 9. Future Improvements
+## Tests
 
-| Direction | Description |
-|-----------|-------------|
-| **Spiking Epigenetic Neurons** | Replace sigmoid gates with binary (Heaviside) spikes for event-driven computation |
-| **Meta-learning integration** | Use MAML / Reptile to train the epigenetic update network `f(·)` for faster adaptation |
-| **Persistent memory across sessions** | Checkpoint the MemoryStore to disk for truly long-term episodic memory |
-| **Attention-weighted state update** | Replace EMA with a learned attention mechanism over past states |
-| **Continual benchmark evaluation** | Test on Split-MNIST, Permuted-MNIST, Split-CIFAR-10 for fair comparison |
-| **Hierarchical epigenetic states** | Separate short-term (layer-level) and long-term (network-level) states |
-| **Neuromodulator signals** | Add dopamine/serotonin analogues to modulate the alpha and lambda hyperparameters dynamically |
-| **GPU scaling** | Add `torch.cuda` device awareness for large-scale experiments |
+```bash
+python -m pytest tests/ -v
+python -m pytest tests/ --cov=src --cov-report=term-missing
+```
+
+**122 tests, all passing.**
+
+| Test file | Count | What is verified |
+|-----------|-------|-----------------|
+| `test_epigenetic_neuron` | 20 | Gate bounds (0,1), memory impact, gradient flow, all activations |
+| `test_epigenetic_layer` | 10 | Multi-head aggregation, residual connection, LayerNorm stats |
+| `test_memory_store` | 13 | Read/write shapes, LRU eviction, decay, reset, differentiability |
+| `test_epigenetic_network` | 22 | End-to-end forward, state evolution, memory write, training loop |
+| `test_controllers` | 22 | EMA correctness (`e_next = 0.3` verified), context save/restore, homeostasis |
+| `test_training` | 18 | Full training loop, checkpoint save+load roundtrip, all metric formulas |
+| `test_data` | 17 | Vocabulary, special tokens, dataset balance, DataLoader shapes |
+
+---
+
+## Key Design Decisions
+
+**Why detach `e_t` between batches?**
+The epigenetic state is a running average across batches, not a differentiable
+recurrence.  Detaching prevents gradient accumulation across batch boundaries
+(which would be BPTT and incompatible with standard training).
+
+**Why `clone().detach()` on memory buffers?**
+PyTorch's version counter tracks in-place modifications.  The `write()` method
+modifies `keys[slot]` in-place; if the same buffer was used in the forward pass
+without cloning, backward would see a version mismatch.  Cloning before the
+forward computation creates an independent copy that is safe to graph-compute on.
+
+**Why a fixed-size memory with LRU eviction?**
+Biological working memory has bounded capacity.  Fixed-size memory also avoids
+unbounded memory growth during long inference runs.  Least-importance eviction
+(analogous to forgetting unimportant events) is a simple but effective policy.
+
+---
+
+## Extending EpiNet
+
+| Goal | Entry point |
+|------|-------------|
+| New activation | Add to `EpigeneticNeuron._ACTIVATIONS` |
+| Different memory policy | Override `MemoryStore.write()` |
+| Hierarchical state | Stack `EpigeneticController` instances |
+| Custom state update | Subclass `EpigeneticNetwork`, override `update_epigenetic_state()` |
+| New dataset | Implement in `src/data/dataset_loader.py`, add to `build_dataloaders()` |
+
+---
+
+## Future Work
+
+| Direction | What it enables |
+|-----------|----------------|
+| Meta-learning for `f(·)` | Few-shot adaptation with MAML / Reptile |
+| Persistent disk memory | Cross-session episodic continuity |
+| Binary epigenetic gates | Spiking-compatible hardware deployment |
+| Attention-weighted state | Richer temporal dependencies than EMA |
+| Benchmark: Permuted/Split-MNIST | Standardised continual learning comparison |
+| Domain-shift NLP tasks | Real-world context-sensitivity demonstration |
 
 ---
 
