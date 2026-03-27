@@ -39,6 +39,7 @@ from src.models.epi_transformer import EpiTransformer
 from src.models.epigenetic_network import EpigeneticNetwork
 from src.models.baseline_transformer import BaselineTransformer
 from src.models.baselines import BiLSTMClassifier, MLPClassifier
+from src.models.contextual_transformer import ContextualTransformer
 from src.data.qa_dataset import build_qa_loaders, QAVocabulary, _tokenise
 from src.utils.config import get_default_config
 from src.training.train import Trainer
@@ -194,6 +195,12 @@ PROBES = {
 
 def build_models(vocab_size: int, max_seq_len: int = 64) -> Dict[str, nn.Module]:
     return {
+        "ContextualTransformer": ContextualTransformer(
+            vocab_size=vocab_size, embed_dim=64, num_heads=4,
+            num_layers=2, num_classes=2, epigenetic_dim=32,
+            ffn_dim=256, memory_size=64, memory_dim=64,
+            epigenetic_alpha=0.3, dropout=0.1, max_seq_len=max_seq_len,
+        ),
         "EpiTransformer    ": EpiTransformer(
             vocab_size=vocab_size, embed_dim=64, num_heads=4,
             num_layers=2, epigenetic_dim=32, num_classes=2,

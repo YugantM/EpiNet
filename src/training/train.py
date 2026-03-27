@@ -29,6 +29,7 @@ from torch.utils.data import DataLoader
 from ..models.epigenetic_network import EpigeneticNetwork
 from ..models.baseline_transformer import BaselineTransformer
 from ..models.epi_transformer import EpiTransformer
+from ..models.contextual_transformer import ContextualTransformer
 from ..controllers.homeostasis import HomeostasisModule
 from ..utils.metrics import MetricsTracker, accuracy
 from ..utils.config import ExperimentConfig, get_default_config
@@ -61,7 +62,7 @@ class Trainer:
         self.model   = model.to(device)
         self.config  = config
         self.device  = device
-        self.is_epi  = isinstance(model, (EpigeneticNetwork, EpiTransformer))
+        self.is_epi  = isinstance(model, (EpigeneticNetwork, EpiTransformer, ContextualTransformer))
 
         self.criterion = nn.CrossEntropyLoss()
         self.optimizer = torch.optim.AdamW(
