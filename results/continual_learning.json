@@ -1,0 +1,18 @@
+{
+  "EpigeneticNetwork": {
+    "task_a_acc_before": 0.9543269230769231,
+    "task_a_acc_after": 0.8293269230769231,
+    "task_b_acc": 1.0,
+    "forgetting": 0.125,
+    "stability": 0.875,
+    "params": 86947
+  },
+  "BaselineTransformer": {
+    "task_a_acc_before": 1.0,
+    "task_a_acc_after": 0.9495192307692307,
+    "task_b_acc": 1.0,
+    "forgetting": 0.050480769230769273,
+    "stability": 0.9495192307692307,
+    "params": 110114
+  }
+}

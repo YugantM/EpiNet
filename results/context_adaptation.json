@@ -1,0 +1,32 @@
+{
+  "ContextualEpiNet": {
+    "final_val_acc": 1.0,
+    "acc_history": [
+      0.834375,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "context_sensitivity": 1.0,
+    "params": 87011
+  },
+  "BaselineTransformer": {
+    "final_val_acc": 1.0,
+    "acc_history": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "context_sensitivity": 0.0,
+    "params": 110114
+  }
+}
