@@ -28,6 +28,7 @@ from torch.utils.data import DataLoader
 
 from ..models.epigenetic_network import EpigeneticNetwork
 from ..models.baseline_transformer import BaselineTransformer
+from ..models.epi_transformer import EpiTransformer
 from ..controllers.homeostasis import HomeostasisModule
 from ..utils.metrics import MetricsTracker, accuracy
 from ..utils.config import ExperimentConfig, get_default_config
@@ -60,7 +61,7 @@ class Trainer:
         self.model   = model.to(device)
         self.config  = config
         self.device  = device
-        self.is_epi  = isinstance(model, EpigeneticNetwork)
+        self.is_epi  = isinstance(model, (EpigeneticNetwork, EpiTransformer))
 
         self.criterion = nn.CrossEntropyLoss()
         self.optimizer = torch.optim.AdamW(
@@ -113,11 +114,14 @@ class Trainer:
                 # Homeostasis: compute mean gate activation
                 gate_vals = info["gate_values"]
                 if gate_vals:
-                    all_gates = torch.cat([
-                        g_head.flatten()
-                        for layer_gates in gate_vals
-                        for g_head in layer_gates
-                    ])
+                    flat_parts = []
+                    for layer_gates in gate_vals:
+                        if isinstance(layer_gates, torch.Tensor):
+                            flat_parts.append(layer_gates.flatten())
+                        else:
+                            for g_head in layer_gates:
+                                flat_parts.append(g_head.flatten())
+                    all_gates = torch.cat(flat_parts)
                     mean_gate = all_gates.mean().item()
                     lr_scale  = self.homeostasis.update(mean_gate)
                     self.homeostasis.apply_to_optimizer(

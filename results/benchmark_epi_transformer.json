@@ -1,0 +1,76 @@
+{
+  "sentiment": {
+    "EpiTransformer": {
+      "val_accuracy": 1.0,
+      "best_accuracy": 1.0,
+      "time_per_epoch": 2.786997079849243,
+      "params": 306147,
+      "context_sensitivity": 0.0
+    },
+    "EpigeneticNetwork": {
+      "val_accuracy": 0.9285714285714286,
+      "best_accuracy": 1.0,
+      "time_per_epoch": 0.2099864880243937,
+      "params": 91043,
+      "context_sensitivity": 0.015
+    },
+    "Transformer": {
+      "val_accuracy": 1.0,
+      "best_accuracy": 1.0,
+      "time_per_epoch": 1.9550652503967285,
+      "params": 114210,
+      "context_sensitivity": 0.0
+    },
+    "BiLSTM": {
+      "val_accuracy": 1.0,
+      "best_accuracy": 1.0,
+      "time_per_epoch": 0.7649415532747904,
+      "params": 178690,
+      "context_sensitivity": 0.0
+    },
+    "MLP": {
+      "val_accuracy": 1.0,
+      "best_accuracy": 1.0,
+      "time_per_epoch": 0.050169010957082115,
+      "params": 20994,
+      "context_sensitivity": 0.0
+    }
+  },
+  "qa": {
+    "EpiTransformer": {
+      "val_accuracy": 0.6583333373069763,
+      "best_accuracy": 0.6583333373069763,
+      "time_per_epoch": 0.4986708362897237,
+      "params": 339555,
+      "context_sensitivity": 0.0
+    },
+    "EpigeneticNetwork": {
+      "val_accuracy": 0.6583333373069763,
+      "best_accuracy": 0.6583333373069763,
+      "time_per_epoch": 0.11412004629770915,
+      "params": 124451,
+      "context_sensitivity": 0.0
+    },
+    "Transformer": {
+      "val_accuracy": 0.5041666686534881,
+      "best_accuracy": 0.6583333373069763,
+      "time_per_epoch": 0.31971381107966107,
+      "params": 147618,
+      "context_sensitivity": 0.0
+    },
+    "BiLSTM": {
+      "val_accuracy": 0.4291666686534882,
+      "best_accuracy": 0.6583333373069763,
+      "time_per_epoch": 0.2223858634630839,
+      "params": 216194,
+      "context_sensitivity": 0.0
+    },
+    "MLP": {
+      "val_accuracy": 0.35,
+      "best_accuracy": 0.6583333373069763,
+      "time_per_epoch": 0.03326543172200521,
+      "params": 58498,
+      "context_sensitivity": 0.0
+    }
+  }
+}
