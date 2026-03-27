@@ -1,0 +1,66 @@
+{
+  "EpigeneticNetwork": {
+    "params": 124451,
+    "val_accuracy": 0.6583333373069763,
+    "adapt_speed": 12,
+    "time_per_epoch": 0.3934323787689209,
+    "context_sensitivity": 0.0,
+    "per_topic_accuracy": {
+      "geography": 0.8888888888888888,
+      "history": 0.5555555555555556,
+      "science": 0.5555555555555556,
+      "sport": 0.625,
+      "literature": 0.8571428571428571,
+      "food": 0.6666666666666666,
+      "technology": 0.5384615384615384
+    }
+  },
+  "Transformer": {
+    "params": 147618,
+    "val_accuracy": 0.5666666686534881,
+    "adapt_speed": 12,
+    "time_per_epoch": 0.5748119751612345,
+    "context_sensitivity": 0.0,
+    "per_topic_accuracy": {
+      "geography": 0.7777777777777778,
+      "history": 0.5555555555555556,
+      "science": 0.6666666666666666,
+      "sport": 0.625,
+      "literature": 0.7142857142857143,
+      "food": 0.6666666666666666,
+      "technology": 0.38461538461538464
+    }
+  },
+  "BiLSTM": {
+    "params": 216194,
+    "val_accuracy": 0.275,
+    "adapt_speed": 12,
+    "time_per_epoch": 0.6108554402987162,
+    "context_sensitivity": 0.0,
+    "per_topic_accuracy": {
+      "geography": 0.2222222222222222,
+      "history": 0.4444444444444444,
+      "science": 0.3333333333333333,
+      "sport": 0.25,
+      "literature": 0.14285714285714285,
+      "food": 0.4166666666666667,
+      "technology": 0.38461538461538464
+    }
+  },
+  "MLP": {
+    "params": 58498,
+    "val_accuracy": 0.3125,
+    "adapt_speed": 12,
+    "time_per_epoch": 0.0580868124961853,
+    "context_sensitivity": 0.0,
+    "per_topic_accuracy": {
+      "geography": 0.2222222222222222,
+      "history": 0.4444444444444444,
+      "science": 0.3333333333333333,
+      "sport": 0.25,
+      "literature": 0.42857142857142855,
+      "food": 0.5,
+      "technology": 0.38461538461538464
+    }
+  }
+}
