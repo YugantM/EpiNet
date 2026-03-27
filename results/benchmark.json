@@ -1,0 +1,42 @@
+{
+  "EpigeneticNetwork": {
+    "task_a_acc": 0.9983552631578947,
+    "task_b_acc": 1.0,
+    "acc_a_after": 0.3859649128035495,
+    "forgetting": 0.6123903503543452,
+    "adapt_speed": 1,
+    "time_per_epoch": 0.9317649602890015,
+    "params": 86947,
+    "context_sensitivity": 0.01
+  },
+  "Transformer": {
+    "task_a_acc": 1.0,
+    "task_b_acc": 1.0,
+    "acc_a_after": 0.8399122796560589,
+    "forgetting": 0.16008772034394114,
+    "adapt_speed": 1,
+    "time_per_epoch": 4.046651214361191,
+    "params": 110114,
+    "context_sensitivity": 0.0
+  },
+  "BiLSTM": {
+    "task_a_acc": 1.0,
+    "task_b_acc": 1.0,
+    "acc_a_after": 0.7620614045544675,
+    "forgetting": 0.23793859544553253,
+    "adapt_speed": 1,
+    "time_per_epoch": 3.4842095375061035,
+    "params": 178690,
+    "context_sensitivity": 0.0
+  },
+  "MLP": {
+    "task_a_acc": 1.0,
+    "task_b_acc": 1.0,
+    "acc_a_after": 0.7637061413965727,
+    "forgetting": 0.23629385860342733,
+    "adapt_speed": 1,
+    "time_per_epoch": 0.2278483808040619,
+    "params": 20994,
+    "context_sensitivity": 0.0
+  }
+}

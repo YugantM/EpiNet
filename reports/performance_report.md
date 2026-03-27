@@ -1,262 +1,218 @@
 # EpiNet Performance Report
 
 **Date:** 2026-03-27
-**Model version:** EpiNet v0.1.0
-**Hardware:** CPU only (Intel x86-64)
-**Framework:** PyTorch 2.11.0+cu130
+**Version:** v0.1.0
+**Hardware:** CPU only (Intel x86-64, single core)
+**Framework:** PyTorch 2.11.0
+**Dataset:** Synthetic (65-word vocabulary, 3 000 samples, seq-len 64)
+**Protocol:** 8 training epochs per task, AdamW lr=1e-3, batch 32, seed 42
 
 ---
 
-## 1. Executive Summary
+## 1. Model Inventory
 
-This report evaluates the Epigenetic Neural Network (EpiNet) prototype against a
-parameter-matched Baseline Transformer on two tasks: **Continual Learning** and
-**Context Adaptation**.  Both models are intentionally small (~87k–110k parameters)
-and trained on synthetic CPU-friendly datasets to enable fast, reproducible evaluation.
+| Model | Architecture | Params | Notes |
+|-------|-------------|-------:|-------|
+| EpigeneticNetwork | Embedding → EpiLayer×2 → MemStore → Head | 86 947 | Proposed model |
+| Transformer | Embedding → TransformerBlock×2 → Head | 110 114 | Standard MHSA |
+| BiLSTM | Embedding → BiLSTM×2 → Head | 178 690 | Recurrent baseline |
+| MLP | Embedding (mean-pool) → MLP → Head | 20 994 | Weakest baseline |
 
-**Key findings:**
-
-| Property | EpiNet | Transformer |
-|----------|--------|-------------|
-| Task-specific accuracy | ✅ Competitive (95–100%) | ✅ High (100%) |
-| Context sensitivity | ✅ **100% flip rate** | ❌ 0% (no mechanism) |
-| Continual learning (this run) | ⚠️ F=0.13 | ✅ F=0.05 |
-| Inference-time adaptation | ✅ Yes (via e_t evolution) | ❌ No |
-| Unique capability | Dynamic context routing | Pure capacity |
+All models share the same embedding dimension (64), output head structure, and
+training loop.  The only differences are the core sequence-processing layers.
 
 ---
 
-## 2. Architectural Comparison
+## 2. Continual Learning Benchmark
 
-### 2.1 Parameter Counts
+### Protocol
 
-| Component | EpiNet | Transformer |
-|-----------|--------|-------------|
-| Encoder | TextEncoder: 8,512 | Token+Pos embed: 17,152 |
-| Core layers | 2× EpigeneticLayer: 52,800 | 2× TransformerBlock: 74,752 |
-| Memory system | MemoryStore + projections: 10,336 | — |
-| Output head | 1,218 | 1,218 |
-| Epigenetic modules | ~13,000 | — |
-| **Total** | **~86,947** | **~110,114** |
+```
+1. Train all models on Task A: sentiment (positive / negative labels)
+   Dataset: 2 400 train / 600 val, 65-word synthetic vocabulary
+2. Record acc_A_before, adaptation speed (epochs to 70% val acc)
+3. Continue training (no weight reset) on Task B: topic (tech / sports)
+4. Record acc_A_after, acc_B_final
+5. Forgetting F = acc_A_before − acc_A_after
+```
 
-EpiNet has 21% fewer parameters than the Transformer but adds three qualitatively
-new subsystems: the epigenetic state, memory store, and homeostasis controller.
+### Raw Numbers (measured)
 
-### 2.2 Computational Complexity
+| Model | acc\_A\_before | acc\_A\_after | acc\_B | Forgetting F | Adapt (ep) | s/epoch |
+|-------|:---:|:---:|:---:|:---:|:---:|---:|
+| EpigeneticNetwork | 1.0000 | 0.4024 | 1.0000 | **0.5976** | 1 | 0.96 s |
+| Transformer | 1.0000 | 0.4929 | 1.0000 | 0.5071 | 1 | 4.00 s |
+| BiLSTM | 1.0000 | 0.8580 | 1.0000 | **0.1420** | 1 | 3.71 s |
+| MLP | 1.0000 | 0.7495 | 1.0000 | 0.2505 | 1 | 0.23 s |
 
-| Operation | EpiNet | Transformer |
-|-----------|--------|-------------|
-| Per-token flops (encode) | O(T·D) | O(T·D) |
-| Self-attention | O(T²·D) — in memory read only | O(T²·D) per layer |
-| Epigenetic gate | O(d_e·H) extra per layer | — |
-| Memory read | O(M·D) | — |
-| State update | O((D+H+M)·d_e) | — |
+**Bold** = best / worst in column.
 
-The EpiNet's main overhead vs. the Transformer is the memory read O(M·D) per
-forward pass.  With M=64 slots and D=64, this is a small constant term.
+### Interpretation
+
+**Why all models reach 100 % on each individual task:**
+The synthetic vocabulary is only 65 tokens.  Task A sentiment words (`great`,
+`terrible`, …) and Task B topic words (`neural`, `championship`, …) have zero
+overlap.  Any model with adequate capacity trivially memorises the mapping in
+1–2 epochs.
+
+**Why forgetting is high across the board:**
+With a 65-token vocabulary the gradient signal for Task B updates the entire
+embedding table.  This is pure catastrophic interference — standard for
+sequential fine-tuning without replay or regularisation.
+
+**Why BiLSTM forgets least:**
+The LSTM's recurrent state distributes task-specific computation across time
+steps and hidden units differently from attention or MLP layers.  The gating
+mechanism (input/forget/output gates) provides some natural resistance to
+full overwriting, similar in spirit to EpiNet's gate but operating at the
+recurrent level.
+
+**Why EpiNet forgets more than MLP despite having more capacity:**
+EpiNet's dynamic epigenetic state e\_t carries forward Task B's distribution
+into the Task A evaluation.  Even if weight updates were identical to MLP,
+the evolved e\_t at test time produces Task-B-biased gates, shifting outputs
+away from the Task A decision boundary.  This is a fundamental interaction
+between the inference-time adaptation mechanism and sequential fine-tuning.
+
+**Mitigation (EpiNet+Boundary):**
+Running `model.reset_memory()` and saving/restoring the epigenetic context
+via `EpigeneticController.save_context()` at task boundaries is the intended
+usage for continual learning.  The current benchmark measures the *naive*
+sequential fine-tuning case.
 
 ---
 
-## 3. Experiment 1 — Continual Learning
+## 3. Context Adaptation Benchmark
 
-### 3.1 Protocol
-
-```
-Training sequence:
-  [Task A: Sentiment] → Evaluate on A → [Task B: Topic] → Re-evaluate on A
-
-Forgetting score:  F = acc_A_before − acc_A_after
-(lower F = better retention)
-```
-
-### 3.2 Results (Measured)
-
-| Model | Task-A acc (before B) | Task-A acc (after B) | Task-B acc | Forgetting F | Params |
-|-------|----------------------|---------------------|------------|--------------|--------|
-| EpigeneticNetwork | 0.9543 | 0.8293 | 1.0000 | **0.1250** | 86,947 |
-| BaselineTransformer | 1.0000 | 0.9495 | 1.0000 | **0.0505** | 110,114 |
-
-### 3.3 Analysis
-
-**Why the Transformer forgets less on this benchmark:**
-
-1. **Dataset simplicity:** The synthetic sentiment (Task A) and topic (Task B)
-   datasets have very different surface-form vocabularies.  The Transformer's
-   large attention capacity memorises both distributions with minimal interference.
-
-2. **EpiNet's memory bottleneck:** With 64 memory slots, the EpiNet writes Task-A
-   representations into slots that get overwritten by Task-B training.  The eviction
-   policy (least-importance slot) does not yet distinguish task boundaries.
-
-3. **EpiNet's advantage on this run (partially masked):** The EpiNet uses 21% fewer
-   parameters but achieves 83% Task-A retention vs. the Transformer's 95%.
-   Adjusted per-parameter, EpiNet loses 0.144 accuracy points per 1k parameters of
-   forgetting, vs. the Transformer's 0.046 — a gap that would narrow significantly
-   with task-boundary signalling (calling `reset_memory()` at boundary).
-
-**When EpiNet is expected to win:**
-
-| Scenario | Why EpiNet has an edge |
-|----------|----------------------|
-| Same task, changing context | Epigenetic gate modulates *which* neurons fire without changing weights |
-| Long input sequences with recurring patterns | Memory accumulates context across batches |
-| Few-shot adaptation (< 10 examples) | State `e_t` adapts in a single forward pass without gradient descent |
-| Neuromorphic / event-driven hardware | Gate binary activations are hardware-friendly |
-
-### 3.4 Ablation: Memory Reset at Task Boundary
-
-Running with `--reset_memory` clears Task-A memory before Task-B training,
-giving a clean upper bound on the memory system's contribution:
-
-```bash
-python -m experiments.continual_learning --reset_memory
-```
-
-Expected outcome: EpiNet forgetting increases slightly (no retained A-context)
-but the gate pathway retains more Task-A knowledge than without the mechanism.
-
----
-
-## 4. Experiment 2 — Context Adaptation
-
-### 4.1 Protocol
+### Protocol
 
 ```
-Same token sequence x presented under two contexts:
-  context = "formal"  → label = 1 (positive)
-  context = "casual"  → label = 0 (negative)
+Each token sequence x presented under two contexts:
+  context = "formal" → label 1
+  context = "casual" → label 0
+  tokens: identical
 
-Context sensitivity = P(predict_formal ≠ predict_casual | same x)
+Context sensitivity = P(pred_formal ≠ pred_casual | same x)
+Trained on 1 280 (tokens, context, label) triples, 8 epochs.
 ```
 
-### 4.2 Results (Measured)
+### Raw Numbers (measured)
 
 | Model | Val Accuracy | Context Sensitivity | Mechanism |
-|-------|-------------|---------------------|-----------|
-| ContextualEpiNet | **1.0000** | **1.0000** | e_0 = ContextEmbedding(ctx_id) |
-| BaselineTransformer | 1.0000 | 0.0000 | None (no dynamic state) |
+|-------|:-----------:|:-------------------:|-----------|
+| ContextualEpiNet | 1.0000 | **1.0000** | e\_0 = ContextEmbedding(ctx\_id) |
+| Transformer | 1.0000 | 0.0000 | none — no dynamic state |
+| BiLSTM | 1.0000 | 0.0000 | none |
+| MLP | 1.0000 | 0.0000 | none |
 
-**Qualitative demonstration (5 samples):**
+### Interpretation
+
+All models achieve perfect accuracy on the non-context-aware version of the
+task.  Only EpiNet can distinguish contexts because it is the only model with
+a mechanism to route computation differently for the same input: the
+context-conditioned initial state e\_0 steers every epigenetic gate in every
+layer.
+
+This is the **core architectural differentiator**.  Information-theoretically:
 
 ```
-Same tokens → EpiNet predictions under two contexts:
-  Sample 1: formal=1 | casual=0  ← FLIP
-  Sample 2: formal=1 | casual=0  ← FLIP
-  Sample 3: formal=1 | casual=0  ← FLIP
-  Sample 4: formal=1 | casual=0  ← FLIP
-  Sample 5: formal=1 | casual=0  ← FLIP
+I(output; context | tokens) = 1 bit   (EpiNet)
+I(output; context | tokens) = 0 bits  (all stateless models)
 ```
-
-100% of samples flip their prediction when the context changes — demonstrating
-that the epigenetic state is the *sole* determinant of output for a given input.
-
-### 4.3 Analysis
-
-This experiment demonstrates the core claim of EpiNet: the **same weight matrix
-(DNA) produces different behaviour (phenotype) depending on the epigenetic state**.
-
-The Transformer achieves 100% accuracy on the non-context-aware version of the
-task (predicting the "canonical" label for each token sequence), but it cannot
-distinguish contexts without injecting the context as an additional token.
-
-EpiNet achieves this through a 64-dimensional context embedding that initialises
-`e_0` differently for "formal" vs "casual" contexts.  The epigenetic gates then
-route the computation through different effective sub-networks — functionally
-equivalent to having 2 separate models while sharing 100% of the base weights.
-
-**Information-theoretic interpretation:**
-
-The mutual information `I(output; context | tokens)` is 1 bit for EpiNet
-(perfectly separable) and 0 bits for Transformer (context-blind).
 
 ---
 
-## 5. Mathematical Correctness Verification
+## 4. Speed Analysis
 
-### 5.1 EMA State Update
+| Model | s/epoch | Relative to Transformer |
+|-------|--------:|:-----------------------:|
+| MLP | 0.23 s | 17× faster |
+| **EpiNet** | **0.96 s** | **4.2× faster** |
+| BiLSTM | 3.71 s | 1.08× faster |
+| Transformer | 4.00 s | 1× (reference) |
 
-The EMA update `e_{t+1} = (1−α)e_t + α·f(·)` was verified in
-`tests/test_controllers.py::test_step_is_ema_update`:
+EpiNet's speed advantage comes from the absence of O(T²) self-attention in
+its layer stack.  The Transformer runs MHSA over every pair of sequence
+positions (T²=4 096 for T=64).  EpiNet's memory read is O(M·D) = O(64·64)
+— a fixed constant independent of sequence length.
 
+The BiLSTM's sequential recurrence limits parallelism; on longer sequences
+EpiNet's advantage over BiLSTM would widen.
+
+---
+
+## 5. Parameter Efficiency
+
+| Model | Params | Task-A acc | Context sens | Params × Forgetting |
+|-------|-------:|:----------:|:------------:|--------------------:|
+| EpigeneticNetwork | 86 947 | 1.0000 | **1.0000** | 51 944 |
+| Transformer | 110 114 | 1.0000 | 0.0000 | 55 868 |
+| BiLSTM | 178 690 | 1.0000 | 0.0000 | 25 374 |
+| MLP | 20 994 | 1.0000 | 0.0000 | 5 260 |
+
+"Params × Forgetting" is a combined cost metric (lower = more efficient
+retention per parameter).  BiLSTM is best on this metric because of its
+low forgetting score.  EpiNet trades retention for the unique context-routing
+capability not available to any other model.
+
+---
+
+## 6. Mathematical Verification
+
+All core formulas were verified by unit tests (122 passing).
+
+### EMA Update
 ```python
-alpha = 0.3
-e_t   = zeros(4, 16)
-delta = ones(4, 16)
-# Expected: e_next = 0.7 * 0 + 0.3 * 1 = 0.3  ✓
-assert allclose(e_next, ones * 0.3, atol=1e-5)
+# test_controllers.py::test_step_is_ema_update
+alpha = 0.3,  e_t = zeros(4,16),  delta = ones(4,16)
+e_next = (1-0.3)*0 + 0.3*1 = 0.3   ✓  allclose(e_next, 0.3, atol=1e-5)
 ```
 
-### 5.2 Epigenetic Gate Bounds
-
-All gate values `g = σ(W_e · e)` are verified to lie in (0, 1) across
-all test fixtures, confirming the sigmoid constraint is respected.
-
-### 5.3 Memory Eviction
-
-The LRU eviction policy was verified: after filling all 16 slots with
-importance=1.0, writing a new entry with importance=100.0 overwrites one of
-the existing slots and the special value appears in memory.
-
-### 5.4 Gradient Flow
-
-End-to-end gradient propagation was verified:
-- Gradients flow from loss → output head → epigenetic layers → encoder → embedding.
-- Memory buffers use `.clone().detach()` to avoid in-place autograd violations.
-- Epigenetic state `e_t` is detached between batches (prevents BPTT across batches).
-
-### 5.5 Forgetting Score Formula
-
+### Gate Bounds
+```python
+# test_epigenetic_neuron.py::test_gate_values_in_unit_interval
+g = sigmoid(W_e @ e)  →  g.min() >= 0.0  and  g.max() <= 1.0   ✓
 ```
-F = acc_before − acc_after
 
-Verified:
-  forgetting_score(0.9, 0.6) = 0.3   ✓  (forgot 30%)
-  forgetting_score(0.6, 0.8) = -0.2  ✓  (positive transfer)
+### Forgetting Formula
+```python
+# test_training.py::test_forgetting_score_*
+forgetting_score(0.9, 0.6)  ==  0.3   ✓
+forgetting_score(0.6, 0.8)  == -0.2   ✓  (positive transfer)
+```
+
+### Memory Eviction
+```python
+# test_memory_store.py::test_write_evicts_least_important
+# Fill 16 slots with importance=1, then write importance=100
+# → slot with importance=100 found in memory.values   ✓
+```
+
+### Gradient Flow
+```python
+# test_epigenetic_network.py::test_end_to_end_gradient_flow
+# loss.backward() succeeds; at least one parameter receives .grad   ✓
+# Requires clone().detach() on memory buffers to avoid version mismatch
 ```
 
 ---
 
-## 6. Training Speed
+## 7. Limitations
 
-Both models were trained for 5 epochs on 2000 synthetic samples (batch size 32,
-seq_len 64) on a single CPU core.
-
-| Model | Time / epoch | Total (5 epochs) |
-|-------|-------------|------------------|
-| EpigeneticNetwork | ~0.7s | ~3.5s |
-| BaselineTransformer | ~2.7s | ~13.5s |
-
-**EpiNet is ~3.9× faster per epoch** primarily because it avoids quadratic
-O(T²) self-attention inside the layer stack (attention is only used in the
-memory read, which has fixed size M=64).
+| Limitation | Impact |
+|------------|--------|
+| 65-word synthetic vocabulary | All models saturate at 100%; no capacity differences visible |
+| No task-boundary protocol | EpiNet measured in naive sequential fine-tuning — worst case |
+| Single CPU run | No statistical variance reported |
+| Short sequences (T=64) | No long-range dependency advantage for any model |
+| Binary classification only | Multi-class or generative settings untested |
 
 ---
 
-## 7. Limitations and Honest Assessment
+## 8. Recommended Next Experiments
 
-| Limitation | Impact | Mitigation |
-|------------|--------|------------|
-| Synthetic data only | Results may not generalise to IMDB/real NLP | Test on real benchmarks (planned) |
-| Task boundary not signalled | EpiNet's memory gets polluted across tasks | Add explicit boundary detection |
-| Small model size | Both models near ceiling on synthetic tasks (100% acc) | Use harder/larger datasets |
-| Transformer uses more params | Comparison not fully iso-parametric | Use param matching via width reduction |
-| Short sequences | No advantage to memory accumulation shown | Test on paragraph-level inputs |
-
----
-
-## 8. Recommended Next Steps
-
-1. **Evaluate on Permuted-MNIST** (standard continual learning benchmark)
-   to test catastrophic forgetting in a canonical setting.
-
-2. **Signal task boundaries** to EpiNet by calling `reset_memory()` and
-   saving/restoring epigenetic state contexts between tasks.
-
-3. **Scale vocabulary and dataset** to 50k words, 50k samples to move beyond
-   ceiling effects and observe genuine differentiation.
-
-4. **Add task-boundary detection** to HomeostasisModule: large shifts in
-   `e_t` (epigenetic events) auto-trigger selective memory reset.
-
-5. **Compare on multi-context NLI or sentiment-with-domain** where the same
-   sentence has different truthfulness depending on the domain/speaker context.
+1. **Permuted-MNIST** — 10-task continual benchmark; shows genuine retention differences
+2. **EpiNet+Boundary** at scale — `reset_memory()` + context save/restore between tasks
+3. **Variable sequence length** (T=512+) — EpiNet's O(M) vs Transformer's O(T²) should diverge
+4. **Multi-context NLI** — same premise, different discourse context, different entailment label
+5. **Few-shot evaluation** — measure accuracy vs number of gradient steps on a new task

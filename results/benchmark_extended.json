@@ -1,0 +1,47 @@
+{
+  "EpiNet (no boundary)": {
+    "params": 86947,
+    "task_a_acc": 1.0,
+    "task_b_acc": 1.0,
+    "acc_a_after": 0.40241228122460215,
+    "forgetting": 0.5975877187753978,
+    "adapt_speed": 1,
+    "time_per_epoch": 0.9567210674285889
+  },
+  "EpiNet+Boundary": {
+    "params": 86947,
+    "task_a_acc": 1.0,
+    "task_b_acc": 1.0,
+    "acc_a_after": 0.39254386017197057,
+    "forgetting": 0.6074561398280294,
+    "adapt_speed": 1,
+    "time_per_epoch": 0.9061017632484436
+  },
+  "Transformer": {
+    "params": 110114,
+    "task_a_acc": 1.0,
+    "task_b_acc": 1.0,
+    "acc_a_after": 0.49287280754039164,
+    "forgetting": 0.5071271924596084,
+    "adapt_speed": 1,
+    "time_per_epoch": 3.99515238404274
+  },
+  "BiLSTM": {
+    "params": 178690,
+    "task_a_acc": 1.0,
+    "task_b_acc": 1.0,
+    "acc_a_after": 0.8580043849192167,
+    "forgetting": 0.1419956150807833,
+    "adapt_speed": 1,
+    "time_per_epoch": 3.711492955684662
+  },
+  "MLP": {
+    "params": 20994,
+    "task_a_acc": 1.0,
+    "task_b_acc": 1.0,
+    "acc_a_after": 0.7494517533402694,
+    "forgetting": 0.25054824665973063,
+    "adapt_speed": 1,
+    "time_per_epoch": 0.22542575001716614
+  }
+}
